@@ -1,9 +1,13 @@
 # install required packages
 install.packages("leaps")
 install.packages("dplyr")
+install.packages("randomForest")
+install.packages("gplots")
 library(leaps)
 library("ggplot2")
 library(dplyr)
+library(randomForest)
+library(gplots)
 
 # Load dataset
 gameData_df <- read.csv("vgsales.csv")
@@ -74,7 +78,7 @@ ggplot(
          Publisher %in% c("Electronic Arts", "Activision", "Namco Bandai Games", "Ubisoft", "Konami Digital Entertainment", "Nintendo") &
            Platform %in% c("DS", "PS2", "PS3", "Wii", "X360", "PSP", "PS", "PC", "XB")),
   aes(x=Platform, y=Global_Sales, fill=Platform))+
-  ggtitle("Barplots of Publisher's  Global Sales per Genre")+
+  ggtitle("Barplots of Publisher's  Number ofGlobal Sales per Genre")+
   geom_bar(stat="identity")+
   labs(x='Genre', y='Global Sales')+
   facet_wrap('Publisher')
@@ -84,5 +88,53 @@ gameData_clean$Platform <- as.factor(gameData_clean$Platform)
 gameData_clean$Genre <- as.factor(gameData_clean$Genre)
 gameData_clean$Year <- as.numeric(gameData_clean$Year)
 
+#Set variable to look at in regression 
+selected.var <- c(2, 3, 4, 5, 6, 11)
+
+#Set up Regression Partitions
+set.seed(1)
+
 # Split dataset into train and test sets
-head(gameData_clean)
+gameTrain.index <-sample(rownames(gameData_clean), dim(gameData_clean)[1]*0.6) # 60%
+gameTrain <- gameData_clean[gameTrain.index,selected.var]
+
+gameValid.index<-setdiff(rownames(gameData_clean),gameTrain.index) # 40%
+gameValid <-gameData_clean[gameValid.index, selected.var]
+
+str(gameTrain)
+str(gameValid)
+
+# Linear Regression
+linearReg <- lm(formula = Global_Sales ~ Genre + Publisher + Year + Platform, data = gameTrain)
+summary(linearReg)
+
+# Binary column of sales greater or less than the mean
+gameTrainLogit <- gameTrain
+salesMean <- mean(gameTrainLogit$Global_Sales)
+salesMean
+gameTrainLogit$Sales <- ifelse(gameTrainLogit$Global_Sales > salesMean, 1, 0)
+
+gameValidLogit <- gameValid
+salesMean <- mean(gameValidLogit$Global_Sales)
+salesMean
+gameValidLogit$Sales <- ifelse(gameValidLogit$Global_Sales > salesMean, 1, 0)
+
+# Logistic Regression
+logisticReg <- glm(formula = Sales ~ Genre + Publisher + Year + Platform, data = gameTrainLogit)
+summary(logisticReg)
+
+# K-means Clustering
+km <- kmeans(gameTrainLogit, centers = 2)
+km
+
+# Random Forest
+randForest1 <- randomForest(Sales ~ Genre + Platform + Year, data = gameTrainLogit)
+randForest1
+
+# Make predictions using Logistic Regression Model
+log_predict <- predict(logisticReg, newdata = gameValidLogit,type = "response")
+log_predict <- ifelse(log_predict > 0.5,1,0)
+
+pr <- prediction(logisticReg, gameValidLogit$Sales)perf <- performance(pr,measure = "tpr",x.measure = "fpr")
+plot(perf)
+auc(gameValidLogit$Survived,log_predict)
